@@ -133,8 +133,15 @@ jobs:
           [[ "$MANIFEST_BRANCH" == 12.1 && "$MAKEFILE_NAME" == twrp_X00TD && "$BUILD_TARGET" == recovery ]]
           bash "$DEVICE_PATH/script.sh" 2>&1 | tee "$GITHUB_WORKSPACE/recovery-build.log"
         else
+          set +e
           source build/envsetup.sh
+          unset ALLOW_MISSING_DEPENDENCIES
           lunch "$MAKEFILE_NAME-eng"
+          lunch_status=$?
+          set -e
+          if (( lunch_status != 0 )); then
+            exit "$lunch_status"
+          fi
           m -j"$(nproc)" "${BUILD_TARGET}image" 2>&1 | tee "$GITHUB_WORKSPACE/recovery-build.log"
         fi
         test -s "out/target/product/$DEVICE_NAME/${BUILD_TARGET}.img"
