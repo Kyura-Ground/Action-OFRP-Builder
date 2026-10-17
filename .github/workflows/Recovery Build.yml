@@ -67,6 +67,9 @@ jobs:
     # You might want to Checkout your repo first, but not mandatory
     - name: Check Out
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+        fetch-tags: false
 
     # Cleanup The Actions Workspace Using Custom Composite Run Actions
     - name: Cleanup
@@ -84,7 +87,7 @@ jobs:
         sudo apt update
         DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
             git python3 tar aria2
-        git clone https://gitlab.com/OrangeFox/misc/scripts
+        git clone --depth=1 --single-branch --no-tags https://gitlab.com/OrangeFox/misc/scripts
         cd scripts
         sudo bash setup/android_build_env.sh
         sed -i 's/cd -/cd ../g' setup/install_android_sdk.sh
@@ -108,18 +111,20 @@ jobs:
 
     - name: Sync OrangeFox sources
       run: |
-        git clone -- "$SYNC_URL" sync
+        git clone --depth=1 --single-branch --no-tags -- "$SYNC_URL" sync
+        python3 "$GITHUB_WORKSPACE/scripts/prepare-sync.py" sync/orangefox_sync.sh
+        bash -n sync/orangefox_sync.sh
         source_dir="$PWD/fox_$MANIFEST_BRANCH"
         (cd sync && bash orangefox_sync.sh --branch "$MANIFEST_BRANCH" --path "$source_dir")
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Clone device tree
-      run: git clone --single-branch --branch "$DEVICE_TREE_BRANCH" -- "$DEVICE_TREE_URL" "$DEVICE_PATH"
+      run: git clone --depth=1 --single-branch --no-tags --branch "$DEVICE_TREE_BRANCH" -- "$DEVICE_TREE_URL" "$DEVICE_PATH"
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ inputs.MANIFEST_BRANCH }}
 
     - name: Clone common tree
       if: inputs.COMMON_TREE_URL != '' && inputs.COMMON_PATH != ''
-      run: git clone --single-branch --branch "$DEVICE_TREE_BRANCH" -- "$COMMON_TREE_URL" "$COMMON_PATH"
+      run: git clone --depth=1 --single-branch --no-tags --branch "$DEVICE_TREE_BRANCH" -- "$COMMON_TREE_URL" "$COMMON_PATH"
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ inputs.MANIFEST_BRANCH }}
 
     - name: Set Swap Space
