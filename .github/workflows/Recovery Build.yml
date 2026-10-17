@@ -10,19 +10,19 @@ on:
       MANIFEST_BRANCH:
         description: 'MANIFEST_BRANCH'
         required: true
-        default: '11.0'
+        default: '12.1'
       DEVICE_TREE_URL:
         description: 'DEVICE_TREE_URL'
         required: true
-        default: 'https://github.com/OrangeFoxRecovery/device_xiaomi_garden'
+        default: 'https://github.com/Kyura-Ground/orangefox_asus_X00TD'
       DEVICE_TREE_BRANCH:
         description: 'DEVICE_TREE_BRANCH'
         required: true
-        default: 'fox_11.0_Q'
+        default: 'OrangeFox'
       DEVICE_PATH:
         description: 'DEVICE_PATH'
         required: true
-        default: 'device/xiaomi/garden'
+        default: 'device/asus/X00TD'
       COMMON_TREE_URL:
         description: 'COMMON_TREE_URL (if no common tree, leave blank)'
         required: false
@@ -32,11 +32,11 @@ on:
       DEVICE_NAME:
         description: 'DEVICE_NAME'
         required: true
-        default: 'garden'
+        default: 'X00TD'
       MAKEFILE_NAME:
         description: 'MAKEFILE_NAME'
         required: true
-        default: 'twrp_garden'
+        default: 'twrp_X00TD'
       BUILD_TARGET:
         description: 'BUILD_TARGET'
         required: true
@@ -44,12 +44,26 @@ on:
 
 jobs:
   build:
-    if: github.event.repository.owner.id == github.event.sender.id
     runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    env:
+      SYNC_URL: ${{ inputs.SYNC_URL }}
+      MANIFEST_BRANCH: ${{ inputs.MANIFEST_BRANCH }}
+      DEVICE_TREE_URL: ${{ inputs.DEVICE_TREE_URL }}
+      DEVICE_TREE_BRANCH: ${{ inputs.DEVICE_TREE_BRANCH }}
+      DEVICE_PATH: ${{ inputs.DEVICE_PATH }}
+      DEVICE_NAME: ${{ inputs.DEVICE_NAME }}
+      MAKEFILE_NAME: ${{ inputs.MAKEFILE_NAME }}
+      BUILD_TARGET: ${{ inputs.BUILD_TARGET }}
+      COMMON_TREE_URL: ${{ inputs.COMMON_TREE_URL }}
+      COMMON_PATH: ${{ inputs.COMMON_PATH }}
     permissions:
       contents: write
     steps:
- 
+
     # You might want to Checkout your repo first, but not mandatory
     - name: Check Out
       uses: actions/checkout@v4
@@ -62,14 +76,13 @@ jobs:
       run: |
         mkdir workspace
         cd workspace
-        echo "workspace-folder=$(pwd)" >> $GITHUB_OUTPUT
+        echo "workspace-folder=$PWD" >> "$GITHUB_OUTPUT"
       id: pwd
 
     - name: Prepare the build environment
       run: |
-        sudo apt update && sudo apt upgrade -y
+        sudo apt update
         DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
-            linux-modules-extra-$(uname -r) \
             git python3 tar aria2
         git clone https://gitlab.com/OrangeFox/misc/scripts
         cd scripts
@@ -85,7 +98,7 @@ jobs:
         java-version: '11'
 
     - name: Setup SSH Keys
-      if: ${{ startsWith(github.event.inputs.MANIFEST_URL, 'git@github.com') || 
+      if: ${{ startsWith(github.event.inputs.SYNC_URL, 'git@github.com') ||
           startsWith(github.event.inputs.DEVICE_TREE_URL, 'git@github.com') ||
           startsWith(github.event.inputs.COMMON_TREE_URL, 'git@github.com') }}
       uses: webfactory/ssh-agent@v0.9.0
@@ -93,50 +106,50 @@ jobs:
           ssh-private-key: |
             ${{ secrets.SSH_PRIVATE_KEY }}
 
-    - name: Sync OrangeFox sources and minimal manifest
+    - name: Sync OrangeFox sources
       run: |
-        cd ${{ steps.pwd.outputs.workspace-folder }}
-        git clone ${{ github.event.inputs.SYNC_URL }}
-        cd sync
-        ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} --path ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        git clone -- "$SYNC_URL" sync
+        source_dir="$PWD/fox_$MANIFEST_BRANCH"
+        (cd sync && bash orangefox_sync.sh --branch "$MANIFEST_BRANCH" --path "$source_dir")
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Clone device tree
-      run: |
-        cd ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        git clone ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
-      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
+      run: git clone --single-branch --branch "$DEVICE_TREE_BRANCH" -- "$DEVICE_TREE_URL" "$DEVICE_PATH"
+      working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ inputs.MANIFEST_BRANCH }}
 
     - name: Clone common tree
-      if: |
-        github.event.inputs.COMMON_TREE_URL != null
-        && github.event.inputs.COMMON_PATH != null
-      run: |
-        cd ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        git clone ${{ github.event.inputs.COMMON_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.COMMON_PATH }}
-      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
+      if: inputs.COMMON_TREE_URL != '' && inputs.COMMON_PATH != ''
+      run: git clone --single-branch --branch "$DEVICE_TREE_BRANCH" -- "$COMMON_TREE_URL" "$COMMON_PATH"
+      working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ inputs.MANIFEST_BRANCH }}
 
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 12
 
-    - name: Building recovery
+    - name: Build and verify recovery
       run: |
-        cd ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        set +e
-        source build/envsetup.sh
-        export ALLOW_MISSING_DEPENDENCIES=true
-        set -e
-        lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng && make clean && mka adbd ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
-      working-directory: ${{ steps.pwd.outputs.workspace-folder }}
-      continue-on-error: true
+        if [[ "$DEVICE_PATH" == device/asus/X00TD ]]; then
+          [[ "$MANIFEST_BRANCH" == 12.1 && "$MAKEFILE_NAME" == twrp_X00TD && "$BUILD_TARGET" == recovery ]]
+          bash "$DEVICE_PATH/script.sh" 2>&1 | tee "$GITHUB_WORKSPACE/recovery-build.log"
+        else
+          source build/envsetup.sh
+          lunch "$MAKEFILE_NAME-eng"
+          m -j"$(nproc)" "${BUILD_TARGET}image" 2>&1 | tee "$GITHUB_WORKSPACE/recovery-build.log"
+        fi
+        test -s "out/target/product/$DEVICE_NAME/${BUILD_TARGET}.img"
+      working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ inputs.MANIFEST_BRANCH }}
 
-    - name: Check the output directory before uploading
-      run: |
-        ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/
-        echo
-        ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/
+    - name: Upload build logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: recovery-build-logs-${{ github.run_id }}
+        if-no-files-found: ignore
+        path: |
+          recovery-build.log
+          ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ inputs.MANIFEST_BRANCH }}/out/soong/build.ninja.d
+          ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ inputs.MANIFEST_BRANCH }}/out/error.log
 
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
@@ -144,6 +157,7 @@ jobs:
         files: |
           ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.img
           ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.zip
+        fail_on_unmatched_files: true
         name: ${{ github.event.inputs.DEVICE_NAME }}-${{ github.run_id }}
         tag_name: ${{ github.run_id }}
         body: |
