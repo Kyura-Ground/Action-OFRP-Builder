@@ -140,7 +140,6 @@ jobs:
         else
           set +e
           source build/envsetup.sh
-          unset ALLOW_MISSING_DEPENDENCIES
           lunch "$MAKEFILE_NAME-eng"
           lunch_status=$?
           set -e
